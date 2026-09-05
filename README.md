@@ -984,4 +984,1541 @@ What does the response reveal?
 Does the operation obey the application's business rules?
 ```
 
-**That mindset is the real meaning of "knowledge of common web vulnerabilities."** It is much more valuable than memorizing a list of payloads.
+# These are some of the most important vulnerability classes for **web application security and bug bounty testing**. 
+
+* What it is
+* How it happens
+* Simple example
+* What to look for during testing
+* How developers prevent it
+* Bug-bounty impact
+
+> **Important:** Only test systems you own or systems where you have explicit authorization. The examples below are designed for understanding and controlled labs.
+
+---
+
+# 1. Authentication Flaws
+
+### What is authentication?
+
+Authentication answers:
+
+> **“Who are you?”**
+
+Examples:
+
+* Username + password
+* OTP
+* MFA
+* Passkeys
+* OAuth
+* SSO
+* API tokens
+
+### Common authentication flaws
+
+#### A. Weak password policy
+
+For example:
+
+```text
+Username: admin
+Password: admin123
+```
+
+If the application allows extremely weak passwords, accounts may be easier to compromise.
+
+#### B. User enumeration
+
+Suppose:
+
+```http
+POST /login
+```
+
+With an invalid username:
+
+```json
+{
+  "error": "User does not exist"
+}
+```
+
+But with an existing username:
+
+```json
+{
+  "error": "Incorrect password"
+}
+```
+
+An attacker can determine which usernames exist.
+
+Better:
+
+```json
+{
+  "error": "Invalid username or password"
+}
+```
+
+#### C. Missing rate limiting
+
+A login endpoint that accepts unlimited attempts can be vulnerable to password guessing.
+
+Look at:
+
+```text
+POST /login
+POST /api/auth/login
+POST /forgot-password
+POST /verify-otp
+```
+
+### Other authentication problems
+
+* Password reset weaknesses
+* OTP reuse
+* OTP not expiring
+* MFA bypass
+* Session fixation
+* Authentication state confusion
+* Account recovery flaws
+* OAuth implementation mistakes
+* Remember-me token weaknesses
+
+### Prevention
+
+Use:
+
+* Strong password hashing such as Argon2id/bcrypt
+* Rate limiting
+* MFA
+* Secure password-reset tokens
+* Short-lived OTPs
+* Generic authentication errors
+* Proper session invalidation
+
+---
+
+# 2. Authorization Flaws
+
+Authentication:
+
+> **Who are you?**
+
+Authorization:
+
+> **What are you allowed to do?**
+
+This distinction is extremely important.
+
+Imagine:
+
+```text
+User A → account ID 1001
+User B → account ID 1002
+```
+
+User A sends:
+
+```http
+GET /api/account/1001
+```
+
+Normally:
+
+```json
+{
+  "name": "User A",
+  "email": "userA@example.com"
+}
+```
+
+If User A changes:
+
+```http
+GET /api/account/1002
+```
+
+and receives User B's information, that's an authorization failure.
+
+This is commonly called **BOLA/IDOR**.
+
+### Types
+
+#### Horizontal privilege escalation
+
+User A accesses another normal user's data.
+
+```text
+User A → User B's data
+```
+
+#### Vertical privilege escalation
+
+A normal user performs an administrator action.
+
+```text
+Normal User → Admin function
+```
+
+For example:
+
+```http
+POST /api/admin/delete-user
+```
+
+If the server only checks whether you're logged in but doesn't verify admin privileges, that's a serious flaw.
+
+### Key testing question
+
+For every sensitive request ask:
+
+> **Does the server verify that this particular user is allowed to perform this particular action on this particular object?**
+
+---
+
+# 3. Session Vulnerabilities
+
+A session allows a server to remember that you've authenticated.
+
+Example:
+
+```http
+Set-Cookie: sessionid=abc123
+```
+
+Browser subsequently sends:
+
+```http
+Cookie: sessionid=abc123
+```
+
+### Common session vulnerabilities
+
+#### Session fixation
+
+An attacker somehow causes a victim to use a session identifier that was already known.
+
+After successful authentication, the application should normally issue a **new session ID**.
+
+#### Session not invalidated after logout
+
+User:
+
+```text
+Login → session A
+Logout
+```
+
+If session A still works, that's a problem.
+
+#### Session remains valid after password change
+
+Changing a password should generally invalidate old sessions, depending on the application's intended security model.
+
+#### Weak session IDs
+
+Bad:
+
+```text
+session=12345
+session=12346
+session=12347
+```
+
+Session identifiers should be unpredictable.
+
+### Cookie security
+
+Look for:
+
+```http
+Set-Cookie: session=...; Secure; HttpOnly; SameSite=Lax
+```
+
+Important flags:
+
+| Flag     | Purpose                                 |
+| -------- | --------------------------------------- |
+| Secure   | Send cookie over HTTPS                  |
+| HttpOnly | Prevent JavaScript from reading it      |
+| SameSite | Helps control cross-site cookie sending |
+
+---
+
+# 4. Security Misconfiguration
+
+This is extremely broad.
+
+It occurs when a system is deployed with unsafe settings.
+
+### Examples
+
+#### Debug mode enabled
+
+```text
+DEBUG=True
+```
+
+An error might reveal:
+
+```text
+/database/config.py
+/home/app/users.py
+SECRET_KEY=...
+```
+
+#### Default credentials
+
+For example:
+
+```text
+admin/admin
+```
+
+#### Directory listing
+
+```text
+/uploads/
+    backup.zip
+    old-config.json
+    database.sql
+```
+
+#### Exposed administration panels
+
+```text
+/admin
+/administrator
+/management
+```
+
+### Other examples
+
+* Unnecessary HTTP methods
+* Verbose error messages
+* Default application configurations
+* Exposed `.git` repository
+* Exposed backup files
+* Missing security headers
+* Incorrect CORS
+* Public cloud storage
+* Exposed monitoring interfaces
+
+### Prevention
+
+Use secure production configuration and regularly audit:
+
+```text
+Debug → OFF
+Default credentials → changed
+Directory listing → disabled
+Sensitive files → protected
+Admin interfaces → restricted
+Error messages → sanitized
+```
+
+---
+
+# 5. CORS Misconfiguration
+
+CORS = **Cross-Origin Resource Sharing**.
+
+Suppose:
+
+```text
+https://bank.example
+```
+
+has an API:
+
+```text
+https://api.bank.example
+```
+
+A browser normally restricts cross-origin JavaScript access.
+
+The server can explicitly allow origins.
+
+Example:
+
+```http
+Access-Control-Allow-Origin: https://trusted.example
+```
+
+### Dangerous configuration
+
+```http
+Access-Control-Allow-Origin: *
+```
+
+This is particularly important when sensitive data is exposed.
+
+Another dangerous pattern is dynamically reflecting arbitrary origins while also allowing credentials.
+
+Conceptually:
+
+```http
+Origin: https://attacker.example
+
+Access-Control-Allow-Origin: https://attacker.example
+Access-Control-Allow-Credentials: true
+```
+
+If the application also returns sensitive authenticated data, this can become serious.
+
+### Important
+
+CORS is **not authentication**.
+
+This:
+
+```http
+Access-Control-Allow-Origin: *
+```
+
+doesn't mean:
+
+> "Anyone can log into the application."
+
+It means browsers may allow JavaScript from permitted origins to read responses.
+
+---
+
+# 6. Open Redirect
+
+An application redirects users based on an attacker-controlled URL.
+
+Example:
+
+```text
+https://example.com/redirect?url=https://google.com
+```
+
+If arbitrary destinations are accepted:
+
+```text
+https://example.com/redirect?url=https://attacker.example
+```
+
+the application redirects the victim.
+
+### Why does it matter?
+
+Open redirect can be useful in:
+
+* Phishing
+* OAuth attacks
+* Trust abuse
+* Authentication-flow attacks
+
+### Better design
+
+Allow only known destinations:
+
+```text
+/redirect?next=/dashboard
+```
+
+Instead of arbitrary external URLs.
+
+---
+
+# 7. File Upload Vulnerabilities
+
+Applications frequently allow:
+
+```text
+Profile picture
+Resume
+Documents
+Attachments
+```
+
+A dangerous upload implementation may trust the filename or MIME type.
+
+Example:
+
+```http
+POST /upload
+Content-Type: multipart/form-data
+```
+
+with:
+
+```text
+avatar.jpg
+```
+
+### Problems
+
+* Executable files accepted
+* Script files stored in executable directories
+* MIME type trusted without validation
+* Filename path manipulation
+* Oversized files
+* Malicious SVG/HTML
+* Publicly accessible sensitive uploads
+* Archive extraction vulnerabilities
+
+### Secure architecture
+
+Uploaded files should ideally:
+
+1. Validate type
+2. Validate size
+3. Generate a random server-side filename
+4. Store outside executable web directories
+5. Restrict permissions
+6. Scan where appropriate
+7. Serve with safe content types
+8. Prevent script execution
+
+---
+
+# 8. Path Traversal
+
+Path traversal occurs when user input influences filesystem paths without proper validation.
+
+Suppose:
+
+```http
+GET /download?file=report.pdf
+```
+
+The application internally does something like:
+
+```text
+/uploads/{file}
+```
+
+If the application doesn't safely constrain the path, traversal sequences can potentially escape the intended directory.
+
+Conceptually:
+
+```text
+uploads/
+    report.pdf
+```
+
+The attacker attempts to navigate:
+
+```text
+uploads/../something
+```
+
+### Potential impact
+
+Depending on permissions and application behavior:
+
+* Read sensitive files
+* Access configuration
+* Access source code
+* Expose credentials
+
+### Prevention
+
+Use:
+
+* Allowlists
+* Canonicalization
+* Safe filesystem APIs
+* Random file identifiers
+* Storage outside sensitive filesystem areas
+
+Never assume:
+
+```text
+"../"
+```
+
+is the only representation that needs consideration.
+
+---
+
+# 9. Local File Inclusion — LFI
+
+LFI is related to path traversal but is specifically about an application **including/processing a local file** based on attacker-controlled input.
+
+Imagine:
+
+```text
+https://example.com/page?template=home
+```
+
+Server code conceptually does:
+
+```text
+include(template)
+```
+
+If arbitrary local files can be selected, an attacker may influence what the application loads.
+
+### Difference
+
+**Path traversal:**
+
+> Accessing a file outside the intended directory.
+
+**LFI:**
+
+> Application includes/loads a local file as part of its processing.
+
+LFI can sometimes become more severe if the application processes the included file as executable code, depending on the technology and configuration.
+
+---
+
+# 10. Server-Side Template Injection — SSTI
+
+SSTI occurs when user-controlled input becomes part of a **template itself**, rather than simply being data rendered by a template.
+
+Consider:
+
+```text
+Hello {{username}}
+```
+
+Safe design:
+
+```text
+username = user_input
+```
+
+The template engine treats the username as data.
+
+Dangerous architecture:
+
+```text
+template = "Hello " + user_input
+render(template)
+```
+
+Now template syntax supplied by the user may be interpreted by the server.
+
+### Common template technologies
+
+* Jinja2
+* Twig
+* Freemarker
+* Thymeleaf
+* Razor
+* Handlebars
+
+### Why SSTI can be serious
+
+Depending on the template engine and configuration, impact may range from:
+
+```text
+Template evaluation
+        ↓
+Sensitive data access
+        ↓
+Application internals
+        ↓
+Potential code execution
+```
+
+### Prevention
+
+Never concatenate untrusted input into templates.
+
+Use:
+
+```text
+static template + user data
+```
+
+rather than:
+
+```text
+user input → template source
+```
+
+---
+
+# 11. Command Injection
+
+Command injection happens when an application passes attacker-controlled input into an operating-system command.
+
+Conceptually:
+
+```text
+User input
+     ↓
+Application
+     ↓
+OS command
+```
+
+Example of unsafe architecture:
+
+```python
+os.system("some-command " + user_input)
+```
+
+The fundamental problem isn't the particular command—it is that untrusted input is being interpreted as part of a shell command.
+
+### Better design
+
+Use APIs that don't invoke a shell and pass arguments separately.
+
+Conceptually:
+
+```python
+subprocess.run(
+    ["some-command", user_value],
+    shell=False
+)
+```
+
+Even then, validate the input according to the application's requirements.
+
+### Impact
+
+Potentially:
+
+* Read files
+* Modify data
+* Access internal resources
+* Execute unintended operations
+
+Command injection can be extremely serious.
+
+---
+
+# 12. XXE — XML External Entity
+
+XXE occurs when an XML parser processes dangerous external entities.
+
+Imagine an application accepts:
+
+```xml
+<user>
+    <name>Mamun</name>
+</user>
+```
+
+The application uses an XML parser.
+
+If external entity processing is unnecessarily enabled, specially constructed XML can cause the parser to access external/local resources.
+
+### Potential impact
+
+Depending on configuration:
+
+```text
+XXE
+ ↓
+Local file disclosure
+ ↓
+SSRF
+ ↓
+Internal service access
+```
+
+### Common locations
+
+* SOAP APIs
+* XML APIs
+* Document processors
+* SVG/XML processing
+* Legacy integrations
+
+### Prevention
+
+Disable:
+
+* External entities
+* External DTDs
+* Unnecessary entity expansion
+
+Use a hardened XML parser configuration.
+
+---
+
+# 13. Prototype Pollution
+
+This is particularly important in **JavaScript/Node.js** applications.
+
+JavaScript objects inherit properties through prototypes.
+
+Conceptually:
+
+```text
+Object
+  ↓
+Prototype
+  ↓
+Object instances
+```
+
+If an application unsafely merges attacker-controlled objects into other objects, an attacker may influence inherited properties.
+
+Dangerous patterns often involve:
+
+```text
+deep merge
+recursive merge
+object assignment
+untrusted JSON
+```
+
+For example, conceptually:
+
+```javascript
+merge(target, userInput);
+```
+
+If the merge function doesn't protect special prototype-related properties, attacker-controlled input can potentially modify behavior across objects.
+
+### Why it matters
+
+Impact depends heavily on the application.
+
+Possible consequences include:
+
+* Authentication bypass
+* Authorization changes
+* Application logic manipulation
+* Denial of service
+* In some vulnerable dependency chains, code execution
+
+### Prevention
+
+* Use maintained libraries
+* Update vulnerable dependencies
+* Validate object keys
+* Avoid unsafe recursive merges
+* Use safer object structures such as `Object.create(null)` where appropriate
+* Avoid trusting inherited properties
+
+---
+
+# 14. JWT Vulnerabilities
+
+JWT = JSON Web Token.
+
+A simplified JWT looks like:
+
+```text
+HEADER.PAYLOAD.SIGNATURE
+```
+
+Example payload:
+
+```json
+{
+  "sub": "123",
+  "role": "user"
+}
+```
+
+### Important misconception
+
+JWT payloads are generally **encoded, not encrypted**.
+
+Therefore, don't put secrets in the payload unless the design specifically uses encryption.
+
+### Common JWT problems
+
+#### Weak signing configuration
+
+Tokens must be validated against an appropriate expected algorithm and key.
+
+#### Algorithm confusion
+
+The server must not blindly trust attacker-controlled algorithm metadata.
+
+#### Signature not verified
+
+This is a critical implementation failure.
+
+#### Long-lived tokens
+
+If a token remains valid for an excessive period, compromise has a larger window.
+
+#### Sensitive information in payload
+
+For example:
+
+```json
+{
+  "password": "...",
+  "secret": "..."
+}
+```
+
+Don't do this.
+
+#### Poor key management
+
+Signing secrets should be:
+
+* Strong
+* Random
+* Protected
+* Rotatable
+
+---
+
+# 15. API Security Issues
+
+Modern applications are heavily API-driven.
+
+Typical API:
+
+```http
+GET /api/users/123
+```
+
+Important API vulnerability classes include:
+
+### BOLA
+
+User A accesses User B's object.
+
+```text
+/api/users/123
+/api/users/124
+```
+
+The important question is whether authorization is checked server-side.
+
+### Broken Function-Level Authorization
+
+Normal user accesses:
+
+```text
+/api/admin/users
+```
+
+### Mass assignment
+
+Suppose the legitimate request is:
+
+```json
+{
+  "name": "Mamun"
+}
+```
+
+But the server blindly accepts:
+
+```json
+{
+  "name": "Mamun",
+  "role": "admin"
+}
+```
+
+This can cause privilege problems.
+
+### Excessive data exposure
+
+API returns:
+
+```json
+{
+  "name": "...",
+  "email": "...",
+  "internal_id": "...",
+  "password_reset_token": "..."
+}
+```
+
+even though the frontend only needs:
+
+```json
+{
+  "name": "..."
+}
+```
+
+### Other API issues
+
+* Missing authentication
+* Missing authorization
+* Rate-limit problems
+* Improper input validation
+* GraphQL authorization issues
+* Excessive resource consumption
+* API versioning mistakes
+
+---
+
+# 16. Race Conditions
+
+A race condition occurs when application behavior depends on the timing/order of simultaneous operations.
+
+Imagine:
+
+```text
+Account balance = $100
+```
+
+Two withdrawal requests arrive almost simultaneously:
+
+```text
+Request A → withdraw $100
+Request B → withdraw $100
+```
+
+If both requests check:
+
+```text
+balance >= $100
+```
+
+before either transaction updates the balance, both may succeed.
+
+Result:
+
+```text
+Expected: $0
+Actual: potentially -$100
+```
+
+### Common targets
+
+* Money transfers
+* Coupon redemption
+* Gift cards
+* Inventory
+* One-time tokens
+* Password reset flows
+* Account actions
+* Voting systems
+
+### Prevention
+
+Use:
+
+* Database transactions
+* Row locking
+* Atomic operations
+* Unique constraints
+* Idempotency keys
+* Proper state machines
+
+---
+
+# 17. Business Logic Vulnerabilities
+
+These are among the most interesting bugs in bug bounty.
+
+The application may be technically functioning correctly, but the **business rules can be abused**.
+
+Example:
+
+An e-commerce website says:
+
+```text
+Maximum 1 coupon per order
+```
+
+But the application doesn't actually enforce that rule server-side.
+
+The UI may prevent:
+
+```text
+Coupon A + Coupon B
+```
+
+but the API might accept both.
+
+### Another example
+
+Application:
+
+```text
+Maximum withdrawal = $500/day
+```
+
+The frontend prevents another withdrawal.
+
+But if the server doesn't maintain the daily limit correctly:
+
+```text
+Request 1 → $500
+Request 2 → $500
+Request 3 → $500
+```
+
+the business rule can be bypassed.
+
+### Key mindset
+
+Don't only ask:
+
+> "Can I break the application?"
+
+Ask:
+
+> **"Can I make the application do something the business owner never intended?"**
+
+---
+
+# 18. Information Disclosure
+
+Information disclosure occurs when an application reveals information that shouldn't be exposed.
+
+Examples:
+
+### Stack trace
+
+```text
+java.lang.NullPointerException
+/home/app/src/payment/PaymentService.java
+```
+
+### API response
+
+```json
+{
+  "user_id": 123,
+  "internal_database_id": 987,
+  "debug": true
+}
+```
+
+### HTTP headers
+
+Sometimes infrastructure information is unnecessarily exposed.
+
+### Other examples
+
+* Internal IP addresses
+* Source-code fragments
+* Database errors
+* Debug information
+* API keys
+* Cloud credentials
+* Backup files
+* User information
+* Internal hostnames
+
+### Important
+
+Not every information leak is automatically a high-severity vulnerability.
+
+You should determine:
+
+```text
+What information?
+        ↓
+Who can access it?
+        ↓
+Is it sensitive?
+        ↓
+Can it be used for further impact?
+```
+
+---
+
+# 19. HTTP Request Smuggling
+
+This is a more advanced vulnerability.
+
+It occurs when different components in a request chain disagree about where an HTTP request ends.
+
+Typical architecture:
+
+```text
+Browser
+   ↓
+CDN / Proxy
+   ↓
+Load Balancer
+   ↓
+Web Server
+```
+
+Suppose the frontend proxy interprets a request one way while the backend interprets it differently.
+
+The disagreement can cause:
+
+```text
+Frontend interpretation
+        ≠
+Backend interpretation
+```
+
+This can allow an attacker to "smuggle" part of a request into the next request.
+
+### Common concepts
+
+You will encounter:
+
+```text
+Content-Length
+Transfer-Encoding
+```
+
+and techniques/classes such as:
+
+```text
+CL.TE
+TE.CL
+TE.TE
+```
+
+### Potential impact
+
+Depending on the environment:
+
+* Request routing manipulation
+* Cache poisoning
+* Authentication bypass
+* Access-control bypass
+* WebSocket/proxy issues
+* Poisoning another user's request
+
+This topic requires much deeper HTTP/proxy knowledge than ordinary vulnerabilities.
+
+---
+
+# 20. Cache Poisoning
+
+Caching systems store responses so they can be served faster.
+
+Architecture:
+
+```text
+User
+ ↓
+CDN
+ ↓
+Application
+```
+
+Suppose:
+
+```text
+GET /page
+```
+
+produces a response that gets cached.
+
+If an attacker can influence something that affects the response but **isn't included in the cache key**, the attacker may cause a poisoned response to be stored.
+
+Conceptually:
+
+```text
+Attacker request
+      ↓
+Application generates manipulated response
+      ↓
+CDN caches it
+      ↓
+Other users receive it
+```
+
+### Things to investigate
+
+* Host-related behavior
+* Query parameters
+* Headers affecting responses
+* Cache-control behavior
+* Cache key construction
+* Content negotiation
+
+### Impact
+
+Potentially:
+
+* Stored XSS-like effects
+* Wrong redirects
+* Content manipulation
+* User-specific content exposure
+
+---
+
+# 21. Web Cache Deception
+
+This is different from cache poisoning.
+
+The attacker attempts to make a cache treat **sensitive dynamic content** as if it were a static resource.
+
+Imagine:
+
+```text
+https://example.com/account
+```
+
+returns private account information.
+
+An attacker might manipulate the URL structure so that some caching layer incorrectly believes the response is a static resource.
+
+Conceptually:
+
+```text
+/account/[cache-looking-path]
+```
+
+If the server/router still processes it as:
+
+```text
+/account
+```
+
+while the cache treats it as a cacheable static resource, sensitive information can potentially become cached.
+
+### Difference
+
+| Vulnerability       | Core problem                                       |
+| ------------------- | -------------------------------------------------- |
+| Cache poisoning     | Attacker poisons a cached response                 |
+| Web cache deception | Sensitive dynamic response gets cached incorrectly |
+
+---
+
+# How These Vulnerabilities Connect
+
+A very important bug-bounty skill is understanding that vulnerabilities can **chain together**.
+
+For example:
+
+```text
+Authentication flaw
+       ↓
+Account takeover
+       ↓
+Authorization weakness
+       ↓
+Access another user's data
+```
+
+Another example:
+
+```text
+SSTI
+ ↓
+Server-side impact
+ ↓
+Sensitive information
+```
+
+Or:
+
+```text
+Prototype Pollution
+ ↓
+Application behavior manipulation
+ ↓
+Authorization/security impact
+```
+
+Or:
+
+```text
+HTTP Request Smuggling
+        ↓
+Cache poisoning
+        ↓
+Victim receives attacker-controlled response
+```
+
+---
+
+# Practical Bug-Bounty Testing Mindset
+
+When you intercept a request in Burp Suite, don't immediately start throwing payloads at it.
+
+Ask these questions.
+
+### 1. Authentication
+
+```text
+Who am I?
+Is authentication required?
+Can authentication be bypassed?
+What happens after logout?
+```
+
+### 2. Authorization
+
+```text
+What object am I accessing?
+Can another user access it?
+What happens if roles change?
+Does the server enforce permissions?
+```
+
+### 3. Session
+
+```text
+How is my session identified?
+Does logout invalidate it?
+Does password change invalidate old sessions?
+Are cookies Secure/HttpOnly/SameSite?
+```
+
+### 4. Input
+
+```text
+Where does my input go?
+Database?
+Filesystem?
+Template?
+OS command?
+XML parser?
+HTML/JavaScript?
+```
+
+### 5. API
+
+```text
+Can I modify object IDs?
+Can I add unexpected fields?
+Can I access admin endpoints?
+Does the API expose excessive data?
+```
+
+### 6. Business logic
+
+```text
+What is the intended rule?
+Is that rule enforced server-side?
+Can I repeat an operation?
+Can I perform operations in an unexpected order?
+Can two requests happen simultaneously?
+```
+
+### 7. Infrastructure
+
+```text
+Is there a CDN?
+Reverse proxy?
+Load balancer?
+Caching?
+Multiple backend servers?
+```
+
+This becomes particularly important for:
+
+```text
+HTTP Request Smuggling
+Cache Poisoning
+Web Cache Deception
+CORS
+```
+
+---
+
+# Suggested Learning Order
+
+Don't try to learn all 21 simultaneously.
+
+I'd recommend:
+
+### Level 1 — Foundation
+
+```text
+HTTP
+HTTPS
+Cookies
+Sessions
+Authentication
+Authorization
+```
+
+### Level 2 — High-value web bugs
+
+```text
+IDOR / BOLA
+XSS
+CSRF
+SQL Injection
+File Upload
+Path Traversal
+Open Redirect
+```
+
+### Level 3 — Server-side vulnerabilities
+
+```text
+SSRF
+LFI
+SSTI
+Command Injection
+XXE
+```
+
+### Level 4 — Modern application security
+
+```text
+JWT
+API Security
+CORS
+Prototype Pollution
+Business Logic
+Race Conditions
+```
+
+### Level 5 — Advanced infrastructure
+
+```text
+HTTP Request Smuggling
+Cache Poisoning
+Web Cache Deception
+```
+
+---
+
+# One Mental Model to Remember
+
+For almost every web vulnerability, trace this flow:
+
+```text
+                    ┌──────────────┐
+                    │    Browser   │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    HTTP Request
+                           │
+                           ▼
+                 ┌──────────────────┐
+                 │ CDN / Proxy / WAF │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                   Web Application
+                          │
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+       Database        Filesystem       OS Command
+          │               │               │
+          └───────────────┼───────────────┘
+                          ▼
+                       Response
+```
+
+Then ask:
+
+> **Where does my input go?**
+
+If input reaches:
+
+```text
+HTML/DOM        → XSS
+Database        → SQLi
+Filesystem      → Path Traversal/LFI
+Template engine → SSTI
+OS command      → Command Injection
+XML parser      → XXE
+Object merge    → Prototype Pollution
+Redirect        → Open Redirect
+Authorization   → IDOR/BOLA
+Cache           → Cache Poisoning/Deception
+HTTP parser     → Request Smuggling
+Business rules  → Business Logic
+```
+
+That mental model is much more valuable than memorizing hundreds of payloads.
+
+### A particularly useful next step
+
+For your bug-bounty learning, I would next study **Authentication → Authorization/IDOR → Session → JWT → API Security** as one connected topic. Those five areas reinforce each other and are heavily represented in modern web applications.
