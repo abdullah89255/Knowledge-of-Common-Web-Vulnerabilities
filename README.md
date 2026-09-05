@@ -1,7 +1,6 @@
 # Knowledge-of-Common-Web-Vulnerabilities
-# Knowledge of Common Web Vulnerabilities
 
-If you're preparing for **web security / bug bounty**, this means being able to recognize common vulnerability classes, understand **why they happen**, understand their impact, and know how to validate them safely in an authorized environment.
+**web security / bug bounty**, this means being able to recognize common vulnerability classes, understand **why they happen**, understand their impact, and know how to validate them safely in an authorized environment.
 
 A useful roadmap is:
 
